@@ -1,58 +1,43 @@
+from flask import Flask, request
 import requests
-import pandas as pd
-import time
+import os
 
-# === INSTELLINGEN ===
-PAIR = 'BTCUSDT'
-INTERVAL = '1m'
-LIMIT = 100
+app = Flask(_name_)
 
-EMA_FAST = 9
-EMA_SLOW = 21
+# Telegram
+TELEGRAM_TOKEN = "7743716121:AAEtAuZPTaEqQK4lZysmMw6tV1Kv_K_NDyc"
+TELEGRAM_CHAT_ID = "5952085659"
 
-TELEGRAM_TOKEN = '7743716121:AAEtAuZPTaEqQK4lZysmMw6tV1Kv_K_NDyc'
-CHAT_ID = '5952085659'
+@app.route('/')
+def home():
+    return "SignalBeast staat online!"
 
-last_signal = None
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    if data is None:
+        return "Geen data ontvangen", 400
 
-def get_candles():
-    url = f'https://api.binance.com/api/v3/klines?symbol={PAIR}&interval={INTERVAL}&limit={LIMIT}'
-    response = requests.get(url)
-    data = response.json()
-    df = pd.DataFrame(data, columns=[
-        'time', 'open', 'high', 'low', 'close', 'volume',
-        'close_time', 'quote_asset_volume', 'trades',
-        'taker_buy_base', 'taker_buy_quote', 'ignore'
-    ])
-    df['close'] = pd.to_numeric(df['close'])
-    return df
+    # Bericht bouwen
+    message = f"*Nieuw signaal via SignalBeast*\n\n"
+    if 'ticker' in data:
+        message += f"Pair: {data['ticker']}\n"
+    if 'strategy' in data and 'order_action' in data['strategy']:
+        message += f"Actie: {data['strategy']['order_action'].capitalize()}\n"
+    if 'price' in data:
+        message += f"Prijs: {data['price']}"
 
-def send_signal(message):
+    # Telegram verzenden
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
-    requests.post(url, data=payload)
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    requests.post(url, json=payload)
 
-def check_ema_strategy():
-    global last_signal
-    df = get_candles()
-    df['EMA_FAST'] = df['close'].ewm(span=EMA_FAST, adjust=False).mean()
-    df['EMA_SLOW'] = df['close'].ewm(span=EMA_SLOW, adjust=False).mean()
+    return "Signaal verzonden!", 200
 
-    if df['EMA_FAST'].iloc[-2] < df['EMA_SLOW'].iloc[-2] and df['EMA_FAST'].iloc[-1] > df['EMA_SLOW'].iloc[-1]:
-        if last_signal != 'BUY':
-            send_signal("SignalBeast: KOOPSIGNAAL - EMA9 kruist boven EMA21 op BTCUSDT")
-            last_signal = 'BUY'
-
-    elif df['EMA_FAST'].iloc[-2] > df['EMA_SLOW'].iloc[-2] and df['EMA_FAST'].iloc[-1] < df['EMA_SLOW'].iloc[-1]:
-        if last_signal != 'SELL':
-            send_signal("SignalBeast: VERKOOPSIGNAAL - EMA9 kruist onder EMA21 op BTCUSDT")
-            last_signal = 'SELL'
-
-# === LOOP ===
-while True:
-    try:
-        check_ema_strategy()
-        time.sleep(60)
-    except Exception as e:
-        print(f"Fout: {e}")
-        time.sleep(60)
+# Belangrijk voor Render (herkenning poort)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
