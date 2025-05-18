@@ -1,47 +1,71 @@
-import time import requests import ta import pandas as pd import numpy as np from flask import Flask
+import time
+import requests
+import ta
+import pandas as pd
+from flask import Flask
 
-Telegram config
+# Telegram gegevens
+BOT_TOKEN = "7743716121:AAEtAuZPTaEqQK4lZysmMw6tV1Kv_K_NDyc"
+CHAT_ID = "5952085659"
 
-BOT_TOKEN = '5952085659:AAHvJqv...'  # Vervang met jouw volledige token CHAT_ID = '5952085659'
+# Maak een Flask app
+app = Flask(_name_)
 
-Flask app voor render.com
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Fout bij verzenden bericht: {e}")
 
-app = Flask(name)
+def get_binance_data(symbol="GBPEUR", interval="5m", limit=100):
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        df = pd.DataFrame(data, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_asset_volume', 'number_of_trades',
+            'taker_buy_base_vol', 'taker_buy_quote_vol', 'ignore'
+        ])
+        df['close'] = pd.to_numeric(df['close'])
+        return df
+    except Exception as e:
+        print(f"Fout bij ophalen data: {e}")
+        return None
 
-Binance API endpoint
+def analyze_and_signal():
+    df = get_binance_data("GBPEUR", "5m")
+    if df is None:
+        return
 
-BINANCE_URL = 'https://api.binance.com/api/v3/klines'
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close']).rsi()
+    df['ema'] = ta.trend.EMAIndicator(close=df['close'], window=21).ema_indicator()
 
-Functie om data op te halen
+    # Alligator indicator
+    df['jaw'] = df['close'].rolling(window=13).mean()
+    df['teeth'] = df['close'].rolling(window=8).mean()
+    df['lips'] = df['close'].rolling(window=5).mean()
 
-def get_data(symbol='EURGBP', interval='5m', limit=100): params = { 'symbol': symbol.upper() + 'T',  # EURGBP => EURGBPT 'interval': interval, 'limit': limit } try: response = requests.get(BINANCE_URL, params=params) data = response.json() df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qv', 'trades', 'tb_base', 'tb_quote', 'ignore']) df['close'] = pd.to_numeric(df['close']) df['high'] = pd.to_numeric(df['high']) df['low'] = pd.to_numeric(df['low']) return df except: return None
+    latest = df.iloc[-1]
+    
+    if latest['rsi'] < 30 and latest['close'] > latest['ema'] and latest['lips'] > latest['teeth'] > latest['jaw']:
+        send_telegram_message("KOOPSIGNAAL: GBPEUR\nRSI: laag, prijs boven EMA, Alligator bullish.")
+    elif latest['rsi'] > 70 and latest['close'] < latest['ema'] and latest['lips'] < latest['teeth'] < latest['jaw']:
+        send_telegram_message("VERKOOPSIGNAAL: GBPEUR\nRSI: hoog, prijs onder EMA, Alligator bearish.")
 
-Indicatorlogica
+@app.route('/')
+def home():
+    return "SignalBeast bot is LIVE!"
 
-def generate_signal(df): df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi() df['ema'] = ta.trend.EMAIndicator(df['close'], window=21).ema_indicator() df['alligator_jaw'] = df['high'].rolling(window=13).mean() df['alligator_teeth'] = df['high'].rolling(window=8).mean() df['alligator_lips'] = df['high'].rolling(window=5).mean()
+@app.route('/run')
+def run_bot():
+    analyze_and_signal()
+    return "Analyse uitgevoerd en eventueel signaal verzonden."
 
-latest = df.iloc[-1]
-
-if latest['rsi'] < 30 and latest['close'] > latest['ema'] and \
-   latest['alligator_lips'] > latest['alligator_teeth'] > latest['alligator_jaw']:
-    return 'BUY'
-elif latest['rsi'] > 70 and latest['close'] < latest['ema'] and \
-     latest['alligator_lips'] < latest['alligator_teeth'] < latest['alligator_jaw']:
-    return 'SELL'
-else:
-    return 'WAIT'
-
-Verstuur signaal
-
-def send_signal(signal, price): sl = price * 0.98 if signal == 'BUY' else price * 1.02 tp = price * 1.05 if signal == 'BUY' else price * 0.95
-
-message = f"SIGNALBEAST ALERT\nPair: EUR/GBP\nSignal: {signal}\nPrice: {price:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}"
-url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-data = {"chat_id": CHAT_ID, "text": message}
-requests.post(url, data=data)
-
-Hoofdfunctie
-
-@app.route('/') def check_market(): df = get_data(symbol='EURGBP') if df is not None: signal = generate_signal(df) price = df['close'].iloc[-1] if signal != 'WAIT': send_signal(signal, price) return f"Laatste signaal: {signal} @ {price}" return "Geen data"
-
-if name == 'main': app.run(host='0.0.0.0', port=10000)
+if _name_ == '_main_':
+    app.run(host='0.0.0.0', port=10000)
