@@ -1,7 +1,7 @@
 from flask import Flask, request
 import requests
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 BOT_TOKEN = '7743716121:AAEtAuZPTaEqQK4lZysmMw6tV1Kv_K_NDyc'
 CHAT_ID = '5952085659'
