@@ -1,34 +1,42 @@
 import requests
 from flask import Flask
-import time
 import threading
+import time
 
 app = Flask(__name__)
 
-# === CONFIG ===
+# === TELEGRAM CONFIG ===
 BOT_TOKEN = "7743716121:AAEtAuZPTaEqQK4lZysmMw6tV1Kv_K_NDyc"
 CHAT_ID = "5952085659"
-BINANCE_URL = "https://api.binance.com/api/v3/klines"
 
-# === PARAMETERS ===
-SYMBOLS = ["btcusdt", "gbpeur", "eurusd"]
-TIMEFRAME = "5m"
-INTERVAL = 300  # seconds (5 minutes)
+# === MARKTCONFIGURATIE ===
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "XAUUSD", "EURUSD", "GBPUSD", "USDJPY"]
+TIMEFRAME = "5"
+CHECK_INTERVAL = 300  # elke 5 minuten
 
-# === TELEGRAM FUNCTION ===
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
+# === BYBIT KLINE API ===
+def fetch_klines(symbol):
+    url = f"https://api.bybit.com/v5/market/kline"
+    params = {
+        "category": "linear",
+        "symbol": symbol,
+        "interval": TIMEFRAME,
+        "limit": 30
+    }
     try:
-        response = requests.post(url, data=payload)
-        print(f"Telegram status: {response.status_code}, msg: {message}")
+        response = requests.get(url, params=params)
+        candles = response.json().get("result", {}).get("list", [])
+        closes = [float(c[4]) for c in candles]
+        return closes
     except Exception as e:
-        print(f"Telegram error: {e}")
+        print(f"Fout bij ophalen data voor {symbol}: {e}")
+        return []
 
-# === INDICATOR FUNCTIONS ===
+# === INDICATOREN ===
 def calculate_rsi(closes, period=14):
-    gains = []
-    losses = []
+    if len(closes) < period:
+        return 50
+    gains, losses = [], []
     for i in range(1, len(closes)):
         delta = closes[i] - closes[i - 1]
         gains.append(max(delta, 0))
@@ -55,54 +63,48 @@ def alligator_signal(prices):
     else:
         return "HOLD"
 
-# === MAIN SIGNAL FUNCTION ===
+# === SIGNALEN CONTROLEREN ===
 def check_signals():
-    print("Starting signal check...")
     for symbol in SYMBOLS:
-        try:
-            response = requests.get(BINANCE_URL, params={
-                "symbol": symbol.upper(),
-                "interval": TIMEFRAME,
-                "limit": 30
-            })
-            data = response.json()
-            closes = [float(candle[4]) for candle in data]
+        closes = fetch_klines(symbol)
+        if len(closes) < 21:
+            continue
+        rsi = calculate_rsi(closes)
+        ema_fast = calculate_ema(closes[-10:], 10)
+        ema_slow = calculate_ema(closes[-21:], 21)
+        alligator = alligator_signal(closes[-3:])
 
-            rsi = calculate_rsi(closes)
-            ema_fast = calculate_ema(closes[-10:], 10)
-            ema_slow = calculate_ema(closes[-21:], 21)
-            alligator = alligator_signal(closes[-3:])
+        action = None
+        if rsi < 30 and ema_fast > ema_slow and alligator == "BUY":
+            action = "BUY"
+        elif rsi > 70 and ema_fast < ema_slow and alligator == "SELL":
+            action = "SELL"
+        else:
+            action = "HOLD"
 
-            print(f"{symbol.upper()} | RSI: {rsi:.2f} | EMA fast: {ema_fast:.2f} | EMA slow: {ema_slow:.2f} | Alligator: {alligator}")
+        message = f"{symbol}\nRSI: {round(rsi, 2)}\nEMA: {round(ema_fast, 2)} / {round(ema_slow, 2)}\nAlligator: {alligator}\nSignal: {action}"
+        send_telegram(message)
 
-            action = None
-            if rsi < 30 and ema_fast > ema_slow and alligator == "BUY":
-                action = "BUY"
-            elif rsi > 70 and ema_fast < ema_slow and alligator == "SELL":
-                action = "SELL"
+# === TELEGRAM STUREN ===
+def send_telegram(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": text}
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Fout bij verzenden Telegram: {e}")
 
-            if action:
-                message = (
-                    f"{symbol.upper()} SIGNAL: {action}\n"
-                    f"RSI: {rsi:.2f}\n"
-                    f"EMA Fast: {ema_fast:.2f}\n"
-                    f"EMA Slow: {ema_slow:.2f}"
-                )
-                send_telegram_message(message)
-            else:
-                print(f"{symbol.upper()} | No signal.")
-        except Exception as e:
-            print(f"Error processing {symbol}: {e}")
-
-# === BACKGROUND LOOP ===
+# === LOOP STARTEN ===
 def run_bot():
     while True:
         check_signals()
-        time.sleep(INTERVAL)
+        time.sleep(CHECK_INTERVAL)
 
-# === START THREAD ON LAUNCH ===
-if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
-    app.run(host="0.0.0.0", port=5000)
+threading.Thread(target=run_bot).start()
 
+@app.route('/')
+def home():
+    return "SignalBeast Telegram bot draait!"
+
+  
      
