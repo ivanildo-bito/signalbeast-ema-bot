@@ -18,7 +18,6 @@ def webhook():
     if data is None:
         return "Geen data ontvangen", 400
 
-    # Bericht bouwen
     message = f"*Nieuw signaal via SignalBeast*\n\n"
     if 'ticker' in data:
         message += f"Pair: {data['ticker']}\n"
@@ -27,7 +26,6 @@ def webhook():
     if 'price' in data:
         message += f"Prijs: {data['price']}"
 
-    # Telegram verzenden
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -38,6 +36,6 @@ def webhook():
 
     return "Signaal verzonden!", 200
 
-# Belangrijk voor Render (herkenning poort)
+# Voor Render juiste poort
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
