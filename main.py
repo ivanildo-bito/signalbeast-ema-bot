@@ -1,7 +1,7 @@
 import requests
 from flask import Flask
-import threading
 import time
+import threading
 
 app = Flask(__name__)
 
@@ -13,11 +13,22 @@ BINANCE_URL = "https://api.binance.com/api/v3/klines"
 # === PARAMETERS ===
 SYMBOLS = ["btcusdt", "gbpeur", "eurusd"]
 TIMEFRAME = "5m"
-INTERVAL = 300  # elke 5 minuten
+INTERVAL = 300  # seconds (5 minutes)
 
-# === INDICATOREN ===
+# === TELEGRAM FUNCTION ===
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
+    try:
+        response = requests.post(url, data=payload)
+        print(f"Telegram status: {response.status_code}, msg: {message}")
+    except Exception as e:
+        print(f"Telegram error: {e}")
+
+# === INDICATOR FUNCTIONS ===
 def calculate_rsi(closes, period=14):
-    gains, losses = [], []
+    gains = []
+    losses = []
     for i in range(1, len(closes)):
         delta = closes[i] - closes[i - 1]
         gains.append(max(delta, 0))
@@ -41,10 +52,12 @@ def alligator_signal(prices):
         return "BUY"
     elif prices[-1] < prices[-2] < prices[-3]:
         return "SELL"
-    return "HOLD"
+    else:
+        return "HOLD"
 
-# === SIGNAAL FUNCTIE ===
+# === MAIN SIGNAL FUNCTION ===
 def check_signals():
+    print("Starting signal check...")
     for symbol in SYMBOLS:
         try:
             response = requests.get(BINANCE_URL, params={
@@ -54,10 +67,13 @@ def check_signals():
             })
             data = response.json()
             closes = [float(candle[4]) for candle in data]
+
             rsi = calculate_rsi(closes)
             ema_fast = calculate_ema(closes[-10:], 10)
             ema_slow = calculate_ema(closes[-21:], 21)
             alligator = alligator_signal(closes[-3:])
+
+            print(f"{symbol.upper()} | RSI: {rsi:.2f} | EMA fast: {ema_fast:.2f} | EMA slow: {ema_slow:.2f} | Alligator: {alligator}")
 
             action = None
             if rsi < 30 and ema_fast > ema_slow and alligator == "BUY":
@@ -66,27 +82,27 @@ def check_signals():
                 action = "SELL"
 
             if action:
-                send_signal(symbol.upper(), action)
-
+                message = (
+                    f"{symbol.upper()} SIGNAL: {action}\n"
+                    f"RSI: {rsi:.2f}\n"
+                    f"EMA Fast: {ema_fast:.2f}\n"
+                    f"EMA Slow: {ema_slow:.2f}"
+                )
+                send_telegram_message(message)
+            else:
+                print(f"{symbol.upper()} | No signal.")
         except Exception as e:
-            print(f"Fout bij {symbol}: {e}")
+            print(f"Error processing {symbol}: {e}")
 
-def send_signal(symbol, action):
-    message = f"SignalBeast Alert\nPair: {symbol}\nAction: {action}"
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": message})
-    print(f"Signaal verstuurd: {symbol} - {action}")
-
-# === LOOP ===
+# === BACKGROUND LOOP ===
 def run_bot():
     while True:
         check_signals()
         time.sleep(INTERVAL)
 
-@app.route('/')
-def index():
-    return "SignalBeast draait live!"
-
-if __name__ == '__main__':
+# === START THREAD ON LAUNCH ===
+if __name__ == "__main__":
     threading.Thread(target=run_bot).start()
     app.run(host="0.0.0.0", port=5000)
+
+     
