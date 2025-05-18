@@ -9,7 +9,7 @@ BOT_TOKEN = "7743716121:AAEtAuZPTaEqQK4lZysmMw6tV1Kv_K_NDyc"
 CHAT_ID = "5952085659"
 
 # Maak een Flask app
-app = Flask(_name_)
+app = Flask(__name__)
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -67,5 +67,5 @@ def run_bot():
     analyze_and_signal()
     return "Analyse uitgevoerd en eventueel signaal verzonden."
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
